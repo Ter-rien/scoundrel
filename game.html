@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scoundrel Card Game</title>
+  <style>
+    body {
+      font-family: 'Arial', sans-serif;
+      background-color: #2c3e50;
+      color: #ecf0f1;
+      margin: 0;
+      padding: 20px;
+    }
+    .game-container {
+      max-width: 800px;
+      margin: 0 auto;
+      background-color: #34495e;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+    }
+    h1 {
+      text-align: center;
+      color: #f1c40f;
+    }
+    .game-area {
+      display: grid;
+      grid-template-columns: 1fr 2fr;
+      gap: 20px;
+    }
+    .player-stats {
+      background-color: #2c3e50;
+      padding: 15px;
+      border-radius: 8px;
+    }
+    .dungeon-area {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+    .card-row {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+    }
+    .card {
+      width: 100px;
+      height: 140px;
+      background-color: white;
+      border-radius: 10px;
+      position: relative;
+      cursor: pointer;
+      transition: transform 0.3s;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    }
+    .card:hover {
+      transform: translateY(-10px);
+    }
+    .card.back {
+      background-color: #3498db;
+      background-image: repeating-linear-gradient(
+        45deg,
+        #3498db,
+        #3498db 10px,
+        #2980b9 10px,
+        #2980b9 20px
+      );
+    }
+    .card-face {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 5px;
+      box-sizing: border-box;
+    }
+    .card-value {
+      font-size: 20px;
+      font-weight: bold;
+    }
+    .card-suit {
+      font-size: 24px;
+    }
+    .red {
+      color: red;
+    }
+    .black {
+      color: black;
+    }
+    .top-left {
+      align-self: flex-start;
+    }
+    .bottom-right {
+      align-self: flex-end;
+      transform: rotate(180deg);
+    }
+    .controls {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    button {
+      background-color: #e74c3c;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: background-color 0.3s;
+    }
+    button:hover {
+      background-color: #c0392b;
+    }
+    .message-log {
+      margin-top: 20px;
+      background-color: #2c3e50;
+      padding: 10px;
+      border-radius: 8px;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="game-container">
+    <h1>Scoundrel</h1>
+    
+    <div class="game-area">
+      <div class="player-stats">
+        <h2>Player</h2>
+        <p>Health: <span id="health">10</span></p>
+        <p>Gold: <span id="gold">0</span></p>
+        <p>Weapon: <span id="weapon">None</span></p>
+        <p>Armor: <span id="armor">None</span></p>
+        <h3>Inventory</h3>
+        <div id="inventory"></div>
+      </div>
+      
+      <div class="dungeon-area">
+        <div class="card-row" id="dungeon-row"></div>
+        <div class="card-row" id="discard-pile"></div>
+      </div>
+    </div>
+    
+    <div class="controls">
+      <button id="start-game">Start Game</button>
+      <button id="draw-card" disabled>Draw Card</button>
+      <button id="retreat" disabled>Retreat</button>
+    </div>
+    
+    <div class="message-log" id="message-log">
+      <p>Welcome to Scoundrel! Press Start Game to begin your adventure.</p>
+    </div>
+  </div>
+
+  <script>
+    // Game state
+    const gameState = {
+      deck: [],
+      discard: [],
+      currentRoom: [],
+      health: 10,
+      maxHealth: 10,
+      gold: 0,
+      weapon: null,
+      armor: null,
+      inventory: [],
+      gameStarted: false
+    };
+
+    // DOM elements
+    const startGameBtn = document.getElementById('start-game');
+    const drawCardBtn = document.getElementById('draw-card');
+    const retreatBtn = document.getElementById('retreat');
+    const dungeonRow = document.getElementById('dungeon-row');
+    const discardPile = document.getElementById('discard-pile');
+    const messageLog = document.getElementById('message-log');
+    const healthDisplay = document.getElementById('health');
+    const goldDisplay = document.getElementById('gold');
+    const weaponDisplay = document.getElementById('weapon');
+    const armorDisplay = document.getElementById('armor');
+    const inventoryDisplay = document.getElementById('inventory');
+
+    // Card values and suits
+    const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+    const suits = [
+      { name: 'hearts', symbol: '♥', color: 'red' },
+      { name: 'diamonds', symbol: '♦', color: 'red' },
+      { name: 'clubs', symbol: '♣', color: 'black' },
+      { name: 'spades', symbol: '♠', color: 'black' }
+    ];
+
+    // Initialize deck
+    function createDeck() {
+      const deck = [];
+      for (const suit of suits) {
+        for (const value of values) {
+          deck.push({
+            value,
+            suit: suit.name,
+            symbol: suit.symbol,
+            color: suit.color,
+            faceValue: getCardValue(value)
+          });
+        }
+      }
+      return deck;
+    }
+
+    // Get numeric value of card
+    function getCardValue(value) {
+      if (value === 'A') return 1;
+      if (['J', 'Q', 'K'].includes(value)) return 10;
+      return parseInt(value);
+    }
+
+    // Shuffle deck using Fisher-Yates algorithm
+    function shuffleDeck(deck) {
+      const shuffled = [...deck];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      return shuffled;
+    }
+
+    // Create a card element
+    function createCardElement(card, faceUp = true) {
+      const cardElement = document.createElement('div');
+      cardElement.className = 'card';
+      
+      if (faceUp) {
+        const cardFace = document.createElement('div');
+        cardFace.className = 'card-face';
+        
+        // Top left value and suit
+        const topLeft = document.createElement('div');
+        topLeft.className = `top-left ${card.color}`;
+        
+        const valueElement = document.createElement('div');
+        valueElement.className = 'card-value';
+        valueElement.textContent = card.value;
+        
+        const suitElement = document.createElement('div');
+        suitElement.className = 'card-suit';
+        suitElement.textContent = card.symbol;
+        
+        topLeft.appendChild(valueElement);
+        topLeft.appendChild(suitElement);
+        
+        // Bottom right value and suit (flipped)
+        const bottomRight = document.createElement('div');
+        bottomRight.className = `bottom-right ${card.color}`;
+        
+        const valueElement2 = document.createElement('div');
+        valueElement2.className = 'card-value';
+        valueElement2.textContent = card.value;
+        
+        const suitElement2 = document.createElement('div');
+        suitElement2.className = 'card-suit';
+        suitElement2.textContent = card.symbol;
+        
+        bottomRight.appendChild(valueElement2);
+        bottomRight.appendChild(suitElement2);
+        
+        cardFace.appendChild(topLeft);
+        cardFace.appendChild(bottomRight);
+        cardElement.appendChild(cardFace);
+        
+        // Store card data
+        cardElement.dataset.value = card.value;
+        cardElement.dataset.suit = card.suit;
+      } else {
+        cardElement.classList.add('back');
+      }
+      
+      return cardElement;
+    }
+
+    // Add message to log
+    function logMessage(message) {
+      const messageElement = document.createElement('p');
+      messageElement.textContent = message;
+      messageLog.appendChild(messageElement);
+      messageLog.scrollTop = messageLog.scrollHeight;
+    }
+
+    // Update player stats display
+    function updateStats() {
+      healthDisplay.textContent = gameState.health;
+      goldDisplay.textContent = gameState.gold;
+      weaponDisplay.textContent = gameState.weapon ? gameState.weapon.value + gameState.weapon.symbol : 'None';
+      armorDisplay.textContent = gameState.armor ? gameState.armor.value + gameState.armor.symbol : 'None';
+      
+      // Update inventory
+      inventoryDisplay.innerHTML = '';
+      gameState.inventory.forEach(item => {
+        const itemElement = document.createElement('p');
+        itemElement.textContent = `${item.value}${item.symbol}`;
+        inventoryDisplay.appendChild(itemElement);
+      });
+    }
+
+    // Start game
+    function startGame() {
+      // Reset game state
+      gameState.deck = shuffleDeck(createDeck());
+      gameState.discard = [];
+      gameState.currentRoom = [];
+      gameState.health = 10;
+      gameState.maxHealth = 10;
+      gameState.gold = 0;
+      gameState.weapon = null;
+      gameState.armor = null;
+      gameState.inventory = [];
+      gameState.gameStarted = true;
+      
+      // Clear UI
+      dungeonRow.innerHTML = '';
+      discardPile.innerHTML = '';
+      messageLog.innerHTML = '';
+      
+      // Enable buttons
+      drawCardBtn.disabled = false;
+      retreatBtn.disabled = false;
+      startGameBtn.textContent = 'Restart Game';
+      
+      // Log starting message
+      logMessage('Game started! Draw a card to enter the dungeon.');
+      
+      // Update stats
+      updateStats();
+    }
+
+    // Draw a card from the deck
+    function drawCard() {
+      if (gameState.deck.length === 0) {
+        // Reshuffle discard pile if deck is empty
+        gameState.deck = shuffleDeck(gameState.discard);
+        gameState.discard = [];
+        logMessage('Deck empty! Reshuffled discard pile.');
+      }
+      
+      const card = gameState.deck.pop();
+      gameState.currentRoom.push(card);
+      
+      // Add card to dungeon row
+      const cardElement = createCardElement(card);
+      dungeonRow.appendChild(cardElement);
+      
+      // Process card effect based on suit
+      processCard(card);
+    }
+
+    // Process a card's effect
+    function processCard(card) {
+      switch(card.suit) {
+        case 'spades':
+          // Monster - combat
+          logMessage(`You encountered a monster (${card.value}${card.symbol})!`);
+          combat(card);
+          break;
+        case 'hearts':
+          // Healing potion
+          const healAmount = Math.min(card.faceValue, gameState.maxHealth - gameState.health);
+          gameState.health += healAmount;
+          logMessage(`You found a healing potion (${card.value}${card.symbol}) and recovered ${healAmount} health!`);
+          updateStats();
+          break;
+        case 'diamonds':
+          // Gold/treasure
+          gameState.gold += card.faceValue;
+          logMessage(`You found ${card.faceValue} gold (${card.value}${card.symbol})!`);
+          updateStats();
+          break;
+        case 'clubs':
+          // Equipment
+          handleEquipment(card);
+          break;
+      }
+    }
+
+    // Handle combat with monster
+    function combat(monster) {
+      const monsterStrength = monster.faceValue;
+      let playerStrength = gameState.weapon ? gameState.weapon.faceValue : 0;
+      
+      logMessage(`Monster strength: ${monsterStrength}, Your strength: ${playerStrength}`);
+      
+      if (playerStrength >= monsterStrength) {
+        // Win combat
+        logMessage(`You defeated the monster!`);
+        // If it's a face card (J, Q, K), get special reward
+        if (['J', 'Q', 'K'].includes(monster.value)) {
+          const reward = 5;
+          gameState.gold += reward;
+          logMessage(`You found ${reward} gold on the defeated monster!`);
+          updateStats();
+        }
+      } else {
+        // Lose combat - take damage
+        const damage = monsterStrength - playerStrength;
+        const actualDamage = gameState.armor ? Math.max(1, damage - gameState.armor.faceValue) : damage;
+        gameState.health -= actualDamage;
+        logMessage(`You took ${actualDamage} damage!`);
+        
+        if (gameState.health <= 0) {
+          gameOver();
+        }
+        updateStats();
+      }
+    }
+
+    // Handle equipment cards
+    function handleEquipment(card) {
+      if (['A', '2', '3', '4', '5'].includes(card.value)) {
+        // Weapon
+        if (!gameState.weapon || card.faceValue > gameState.weapon.faceValue) {
+          gameState.weapon = card;
+          logMessage(`You found a better weapon (${card.value}${card.symbol})!`);
+        } else {
+          logMessage(`You found a weapon (${card.value}${card.symbol}), but your current one is better.`);
+        }
+      } else {
+        // Armor
+        if (!gameState.armor || card.faceValue > gameState.armor.faceValue) {
+          gameState.armor = card;
+          logMessage(`You found better armor (${card.value}${card.symbol})!`);
+        } else {
+          logMessage(`You found armor (${card.value}${card.symbol}), but your current one is better.`);
+        }
+      }
+      updateStats();
+    }
+
+    // Game over
+    function gameOver() {
+      gameState.gameStarted = false;
+      drawCardBtn.disabled = true;
+      retreatBtn.disabled = true;
+      
+      logMessage(`Game over! You died in the dungeon.`);
+      logMessage(`Final score: ${gameState.gold} gold.`);
+    }
+
+    // Retreat from dungeon
+    function retreat() {
+      if (gameState.currentRoom.length > 0) {
+        // Move all cards to discard pile
+        gameState.currentRoom.forEach(card => {
+          gameState.discard.push(card);
+        });
+        
+        // Clear dungeon display
+        dungeonRow.innerHTML = '';
+        discardPile.innerHTML = '';
+        
+        // Add a face-down card to represent discard pile
+        if (gameState.discard.length > 0) {
+          const discardElement = createCardElement(null, false);
+          discardPile.appendChild(discardElement);
+        }
+        
+        gameState.currentRoom = [];
+        logMessage(`You retreated from the dungeon safely.`);
+      } else {
+        logMessage(`There's nothing to retreat from.`);
+      }
+    }
+
+    // Event listeners
+    startGameBtn.addEventListener('click', startGame);
+    drawCardBtn.addEventListener('click', drawCard);
+    retreatBtn.addEventListener('click', retreat);
+  </script>
+</body>
+</html>
