@@ -43,6 +43,7 @@
       display: flex;
       gap: 10px;
       justify-content: center;
+      flex-wrap: wrap;
     }
     .card {
       width: 100px;
@@ -53,6 +54,7 @@
       cursor: pointer;
       transition: transform 0.3s;
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+      margin-bottom: 10px;
     }
     .card:hover {
       transform: translateY(-10px);
@@ -115,6 +117,10 @@
     button:hover {
       background-color: #c0392b;
     }
+    button:disabled {
+      background-color: #7f8c8d;
+      cursor: not-allowed;
+    }
     .message-log {
       margin-top: 20px;
       background-color: #2c3e50;
@@ -123,16 +129,34 @@
       max-height: 150px;
       overflow-y: auto;
     }
+    .deck-info {
+      text-align: center;
+      margin-top: 15px;
+    }
+    .selectable {
+      border: 2px solid transparent;
+    }
+    .selectable:hover {
+      border: 2px solid #f1c40f;
+    }
+    .phase-indicator {
+      text-align: center;
+      font-weight: bold;
+      margin: 10px 0;
+      color: #f1c40f;
+    }
   </style>
 </head>
 <body>
   <div class="game-container">
     <h1>Scoundrel</h1>
     
+    <div class="phase-indicator" id="phase-indicator">Welcome to Scoundrel!</div>
+    
     <div class="game-area">
       <div class="player-stats">
         <h2>Player</h2>
-        <p>Health: <span id="health">10</span></p>
+        <p>Health: <span id="health">20</span></p>
         <p>Gold: <span id="gold">0</span></p>
         <p>Weapon: <span id="weapon">None</span></p>
         <p>Armor: <span id="armor">None</span></p>
@@ -143,13 +167,17 @@
       <div class="dungeon-area">
         <div class="card-row" id="dungeon-row"></div>
         <div class="card-row" id="discard-pile"></div>
+        <div class="deck-info">
+          <p>Deck: <span id="deck-count">52</span> cards</p>
+        </div>
       </div>
     </div>
     
     <div class="controls">
       <button id="start-game">Start Game</button>
+      <button id="begin-adventure" disabled>Begin Adventure</button>
       <button id="draw-card" disabled>Draw Card</button>
-      <button id="retreat" disabled>Retreat</button>
+      <button id="escape" disabled>Escape</button>
     </div>
     
     <div class="message-log" id="message-log">
@@ -163,19 +191,22 @@
       deck: [],
       discard: [],
       currentRoom: [],
-      health: 10,
-      maxHealth: 10,
+      health: 20,
+      maxHealth: 20,
       gold: 0,
       weapon: null,
       armor: null,
       inventory: [],
-      gameStarted: false
+      gameStarted: false,
+      phase: 'init', // init, adventure, dungeon, combat, gameover
+      selectedCard: null
     };
 
     // DOM elements
     const startGameBtn = document.getElementById('start-game');
+    const beginAdventureBtn = document.getElementById('begin-adventure');
     const drawCardBtn = document.getElementById('draw-card');
-    const retreatBtn = document.getElementById('retreat');
+    const escapeBtn = document.getElementById('escape');
     const dungeonRow = document.getElementById('dungeon-row');
     const discardPile = document.getElementById('discard-pile');
     const messageLog = document.getElementById('message-log');
@@ -184,6 +215,8 @@
     const weaponDisplay = document.getElementById('weapon');
     const armorDisplay = document.getElementById('armor');
     const inventoryDisplay = document.getElementById('inventory');
+    const deckCountDisplay = document.getElementById('deck-count');
+    const phaseIndicator = document.getElementById('phase-indicator');
 
     // Card values and suits
     const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
@@ -229,9 +262,10 @@
     }
 
     // Create a card element
-    function createCardElement(card, faceUp = true) {
+    function createCardElement(card, faceUp = true, selectable = false) {
       const cardElement = document.createElement('div');
       cardElement.className = 'card';
+      if (selectable) cardElement.classList.add('selectable');
       
       if (faceUp) {
         const cardFace = document.createElement('div');
@@ -274,6 +308,13 @@
         // Store card data
         cardElement.dataset.value = card.value;
         cardElement.dataset.suit = card.suit;
+        cardElement.dataset.index = gameState.currentRoom.length - 1;
+        
+        if (selectable) {
+          cardElement.addEventListener('click', () => {
+            selectCard(parseInt(cardElement.dataset.index));
+          });
+        }
       } else {
         cardElement.classList.add('back');
       }
@@ -295,6 +336,7 @@
       goldDisplay.textContent = gameState.gold;
       weaponDisplay.textContent = gameState.weapon ? gameState.weapon.value + gameState.weapon.symbol : 'None';
       armorDisplay.textContent = gameState.armor ? gameState.armor.value + gameState.armor.symbol : 'None';
+      deckCountDisplay.textContent = gameState.deck.length;
       
       // Update inventory
       inventoryDisplay.innerHTML = '';
@@ -305,39 +347,84 @@
       });
     }
 
+    // Update phase indicator
+    function updatePhaseIndicator() {
+      switch(gameState.phase) {
+        case 'init':
+          phaseIndicator.textContent = 'Press "Start Game" to begin';
+          break;
+        case 'adventure':
+          phaseIndicator.textContent = 'Press "Begin Adventure" to draw 4 cards';
+          break;
+        case 'selection':
+          phaseIndicator.textContent = 'Select a card to resolve or press "Escape"';
+          break;
+        case 'dungeon':
+          phaseIndicator.textContent = 'Explore the dungeon - Draw a card or Escape';
+          break;
+        case 'gameover':
+          phaseIndicator.textContent = 'Game Over! Press "Start Game" to try again';
+          break;
+      }
+    }
+
     // Start game
     function startGame() {
       // Reset game state
       gameState.deck = shuffleDeck(createDeck());
       gameState.discard = [];
       gameState.currentRoom = [];
-      gameState.health = 10;
-      gameState.maxHealth = 10;
+      gameState.health = 20;
+      gameState.maxHealth = 20;
       gameState.gold = 0;
       gameState.weapon = null;
       gameState.armor = null;
       gameState.inventory = [];
       gameState.gameStarted = true;
+      gameState.phase = 'adventure';
       
       // Clear UI
       dungeonRow.innerHTML = '';
       discardPile.innerHTML = '';
       messageLog.innerHTML = '';
       
-      // Enable buttons
-      drawCardBtn.disabled = false;
-      retreatBtn.disabled = false;
+      // Enable/disable buttons
       startGameBtn.textContent = 'Restart Game';
+      beginAdventureBtn.disabled = false;
+      drawCardBtn.disabled = true;
+      escapeBtn.disabled = true;
       
       // Log starting message
-      logMessage('Game started! Draw a card to enter the dungeon.');
+      logMessage('Game started! Press "Begin Adventure" to draw 4 cards.');
       
-      // Update stats
+      // Update stats and phase
       updateStats();
+      updatePhaseIndicator();
     }
 
-    // Draw a card from the deck
-    function drawCard() {
+    // Begin adventure (draw 4 cards)
+    function beginAdventure() {
+      // Clear dungeon row
+      dungeonRow.innerHTML = '';
+      gameState.currentRoom = [];
+      
+      // Draw 4 cards
+      for (let i = 0; i < 4; i++) {
+        drawInitialCard();
+      }
+      
+      // Update phase
+      gameState.phase = 'selection';
+      beginAdventureBtn.disabled = true;
+      escapeBtn.disabled = false;
+      
+      // Log message
+      logMessage('Select a card to resolve or press "Escape" to flee.');
+      updatePhaseIndicator();
+    }
+
+    // Draw initial card (for adventure start)
+    function drawInitialCard() {
       if (gameState.deck.length === 0) {
         // Reshuffle discard pile if deck is empty
         gameState.deck = shuffleDeck(gameState.discard);
@@ -348,16 +435,71 @@
       const card = gameState.deck.pop();
       gameState.currentRoom.push(card);
       
+      // Add card to dungeon row with selection enabled
+      const cardElement = createCardElement(card, true, true);
+      dungeonRow.appendChild(cardElement);
+      
+      updateStats();
+    }
+
+    // Select a card to resolve
+    function selectCard(index) {
+      if (gameState.phase !== 'selection') return;
+      
+      // Get the selected card
+      const card = gameState.currentRoom[index];
+      
+      // Remove all cards from currentRoom
+      const otherCards = gameState.currentRoom.filter((_, i) => i !== index);
+      
+      // Add other cards to discard
+      otherCards.forEach(c => gameState.discard.push(c));
+      
+      // Clear dungeon display
+      dungeonRow.innerHTML = '';
+      
+      // Process the selected card
+      processCard(card);
+      
+      // Empty currentRoom
+      gameState.currentRoom = [];
+      
+      // Update phase
+      gameState.phase = 'dungeon';
+      escapeBtn.disabled = false;
+      drawCardBtn.disabled = false;
+      
+      updatePhaseIndicator();
+      updateStats();
+    }
+
+    // Draw a card from the deck (during dungeon exploration)
+    function drawCard() {
+      if (gameState.phase !== 'dungeon') return;
+      
+      if (gameState.deck.length === 0) {
+        // Reshuffle discard pile if deck is empty
+        gameState.deck = shuffleDeck(gameState.discard);
+        gameState.discard = [];
+        logMessage('Deck empty! Reshuffled discard pile.');
+      }
+      
+      const card = gameState.deck.pop();
+      
       // Add card to dungeon row
       const cardElement = createCardElement(card);
       dungeonRow.appendChild(cardElement);
       
       // Process card effect based on suit
       processCard(card);
+      updateStats();
     }
 
     // Process a card's effect
     function processCard(card) {
+      // Add card to discard after processing
+      gameState.discard.push(card);
+      
       switch(card.suit) {
         case 'spades':
           // Monster - combat
@@ -369,13 +511,11 @@
           const healAmount = Math.min(card.faceValue, gameState.maxHealth - gameState.health);
           gameState.health += healAmount;
           logMessage(`You found a healing potion (${card.value}${card.symbol}) and recovered ${healAmount} health!`);
-          updateStats();
           break;
         case 'diamonds':
           // Gold/treasure
           gameState.gold += card.faceValue;
           logMessage(`You found ${card.faceValue} gold (${card.value}${card.symbol})!`);
-          updateStats();
           break;
         case 'clubs':
           // Equipment
@@ -399,7 +539,6 @@
           const reward = 5;
           gameState.gold += reward;
           logMessage(`You found ${reward} gold on the defeated monster!`);
-          updateStats();
         }
       } else {
         // Lose combat - take damage
@@ -411,7 +550,6 @@
         if (gameState.health <= 0) {
           gameOver();
         }
-        updateStats();
       }
     }
 
@@ -434,48 +572,55 @@
           logMessage(`You found armor (${card.value}${card.symbol}), but your current one is better.`);
         }
       }
-      updateStats();
     }
 
     // Game over
     function gameOver() {
       gameState.gameStarted = false;
+      gameState.phase = 'gameover';
       drawCardBtn.disabled = true;
-      retreatBtn.disabled = true;
+      escapeBtn.disabled = true;
+      beginAdventureBtn.disabled = true;
       
       logMessage(`Game over! You died in the dungeon.`);
       logMessage(`Final score: ${gameState.gold} gold.`);
+      
+      updatePhaseIndicator();
     }
 
-    // Retreat from dungeon
-    function retreat() {
+    // Escape from dungeon
+    function escape() {
       if (gameState.currentRoom.length > 0) {
-        // Move all cards to discard pile
-        gameState.currentRoom.forEach(card => {
-          gameState.discard.push(card);
-        });
+        // Move all cards to bottom of deck (not discard)
+        gameState.deck = [...gameState.deck, ...gameState.currentRoom];
         
         // Clear dungeon display
         dungeonRow.innerHTML = '';
-        discardPile.innerHTML = '';
-        
-        // Add a face-down card to represent discard pile
-        if (gameState.discard.length > 0) {
-          const discardElement = createCardElement(null, false);
-          discardPile.appendChild(discardElement);
-        }
         
         gameState.currentRoom = [];
-        logMessage(`You retreated from the dungeon safely.`);
+        logMessage(`You escaped and shuffled the revealed cards back into the deck.`);
+        
+        // If in selection phase, go to dungeon phase
+        if (gameState.phase === 'selection') {
+          gameState.phase = 'dungeon';
+          drawCardBtn.disabled = false;
+          updatePhaseIndicator();
+        }
       } else {
-        logMessage(`There's nothing to retreat from.`);
+        logMessage(`There's nothing to escape from.`);
       }
+      
+      updateStats();
     }
 
     // Event listeners
     startGameBtn.addEventListener('click', startGame);
+    beginAdventureBtn.addEventListener('click', beginAdventure);
     drawCardBtn.addEventListener('click', drawCard);
-    retreatBtn.addEventListener('click', retreat);
+    escapeBtn.addEventListener('click', escape);
+    
+    // Initialize UI
+    updatePhaseIndicator();
   </script>
 </body>
 </html>
