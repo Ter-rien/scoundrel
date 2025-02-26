@@ -145,6 +145,9 @@
       margin: 10px 0;
       color: #f1c40f;
     }
+    .hidden {
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -158,7 +161,7 @@
         <h2>Player</h2>
         <p>Health: <span id="health">20</span></p>
         <p>Gold: <span id="gold">0</span></p>
-        <p>Weapon: <span id="weapon">None</span></p>
+        <p>Weapon: <span id="weapon">Unarmed</span></p>
         <p>Armor: <span id="armor">None</span></p>
         <h3>Inventory</h3>
         <div id="inventory"></div>
@@ -174,14 +177,13 @@
     </div>
     
     <div class="controls">
-      <button id="start-game">Start Game</button>
-      <button id="begin-adventure" disabled>Begin Adventure</button>
-      <button id="draw-card" disabled>Draw Card</button>
-      <button id="escape" disabled>Escape</button>
+      <button id="begin-adventure">Begin Adventure</button>
+      <button id="draw-card" class="hidden">Draw Card</button>
+      <button id="escape" class="hidden">Escape</button>
     </div>
     
     <div class="message-log" id="message-log">
-      <p>Welcome to Scoundrel! Press Start Game to begin your adventure.</p>
+      <p>Welcome to Scoundrel! Press "Begin Adventure" to start the game.</p>
     </div>
   </div>
 
@@ -198,12 +200,11 @@
       armor: null,
       inventory: [],
       gameStarted: false,
-      phase: 'init', // init, adventure, dungeon, combat, gameover
-      selectedCard: null
+      phase: 'init', // init, selection, dungeon, gameover
+      canEscape: true
     };
 
     // DOM elements
-    const startGameBtn = document.getElementById('start-game');
     const beginAdventureBtn = document.getElementById('begin-adventure');
     const drawCardBtn = document.getElementById('draw-card');
     const escapeBtn = document.getElementById('escape');
@@ -308,7 +309,7 @@
         // Store card data
         cardElement.dataset.value = card.value;
         cardElement.dataset.suit = card.suit;
-        cardElement.dataset.index = gameState.currentRoom.length - 1;
+        cardElement.dataset.index = gameState.currentRoom.indexOf(card);
         
         if (selectable) {
           cardElement.addEventListener('click', () => {
@@ -334,7 +335,7 @@
     function updateStats() {
       healthDisplay.textContent = gameState.health;
       goldDisplay.textContent = gameState.gold;
-      weaponDisplay.textContent = gameState.weapon ? gameState.weapon.value + gameState.weapon.symbol : 'None';
+      weaponDisplay.textContent = gameState.weapon ? gameState.weapon.value + gameState.weapon.symbol : 'Unarmed';
       armorDisplay.textContent = gameState.armor ? gameState.armor.value + gameState.armor.symbol : 'None';
       deckCountDisplay.textContent = gameState.deck.length;
       
@@ -351,25 +352,33 @@
     function updatePhaseIndicator() {
       switch(gameState.phase) {
         case 'init':
-          phaseIndicator.textContent = 'Press "Start Game" to begin';
-          break;
-        case 'adventure':
-          phaseIndicator.textContent = 'Press "Begin Adventure" to draw 4 cards';
+          phaseIndicator.textContent = 'Press "Begin Adventure" to start the game';
           break;
         case 'selection':
-          phaseIndicator.textContent = 'Select a card to resolve or press "Escape"';
-          break;
-        case 'dungeon':
-          phaseIndicator.textContent = 'Explore the dungeon - Draw a card or Escape';
+          phaseIndicator.textContent = 'Select a card to resolve' + (gameState.canEscape ? ' or press "Escape"' : '');
           break;
         case 'gameover':
-          phaseIndicator.textContent = 'Game Over! Press "Start Game" to try again';
+          phaseIndicator.textContent = 'Game Over! Press "Begin Adventure" to try again';
           break;
       }
     }
 
-    // Start game
-    function startGame() {
+    // Update button visibility
+    function updateButtons() {
+      if (gameState.phase === 'init' || gameState.phase === 'gameover') {
+        beginAdventureBtn.classList.remove('hidden');
+        drawCardBtn.classList.add('hidden');
+        escapeBtn.classList.add('hidden');
+      } else {
+        beginAdventureBtn.classList.add('hidden');
+        drawCardBtn.classList.add('hidden');
+        escapeBtn.classList.remove('hidden');
+        escapeBtn.disabled = !gameState.canEscape;
+      }
+    }
+
+    // Start game and draw 4 cards
+    function beginAdventure() {
       // Reset game state
       gameState.deck = shuffleDeck(createDeck());
       gameState.discard = [];
@@ -381,117 +390,86 @@
       gameState.armor = null;
       gameState.inventory = [];
       gameState.gameStarted = true;
-      gameState.phase = 'adventure';
+      gameState.phase = 'selection';
+      gameState.canEscape = true;
       
       // Clear UI
       dungeonRow.innerHTML = '';
       discardPile.innerHTML = '';
       messageLog.innerHTML = '';
       
-      // Enable/disable buttons
-      startGameBtn.textContent = 'Restart Game';
-      beginAdventureBtn.disabled = false;
-      drawCardBtn.disabled = true;
-      escapeBtn.disabled = true;
+      // Draw 4 cards immediately
+      drawInitialCards();
       
       // Log starting message
-      logMessage('Game started! Press "Begin Adventure" to draw 4 cards.');
+      logMessage('Adventure begun! Select a card to resolve or escape this room.');
       
-      // Update stats and phase
+      // Update stats, phase, and buttons
       updateStats();
       updatePhaseIndicator();
+      updateButtons();
     }
 
-    // Begin adventure (draw 4 cards)
-    function beginAdventure() {
+    // Draw 4 initial cards
+    function drawInitialCards() {
       // Clear dungeon row
       dungeonRow.innerHTML = '';
       gameState.currentRoom = [];
       
       // Draw 4 cards
       for (let i = 0; i < 4; i++) {
-        drawInitialCard();
+        if (gameState.deck.length === 0) {
+          // Reshuffle discard pile if deck is empty
+          gameState.deck = shuffleDeck(gameState.discard);
+          gameState.discard = [];
+          logMessage('Deck empty! Reshuffled discard pile.');
+        }
+        
+        const card = gameState.deck.pop();
+        gameState.currentRoom.push(card);
       }
       
-      // Update phase
-      gameState.phase = 'selection';
-      beginAdventureBtn.disabled = true;
-      escapeBtn.disabled = false;
-      
-      // Log message
-      logMessage('Select a card to resolve or press "Escape" to flee.');
-      updatePhaseIndicator();
+      // Render all cards selectable
+      renderRoom();
     }
 
-    // Draw initial card (for adventure start)
-    function drawInitialCard() {
-      if (gameState.deck.length === 0) {
-        // Reshuffle discard pile if deck is empty
-        gameState.deck = shuffleDeck(gameState.discard);
-        gameState.discard = [];
-        logMessage('Deck empty! Reshuffled discard pile.');
-      }
+    // Render the current room
+    function renderRoom() {
+      dungeonRow.innerHTML = '';
       
-      const card = gameState.deck.pop();
-      gameState.currentRoom.push(card);
-      
-      // Add card to dungeon row with selection enabled
-      const cardElement = createCardElement(card, true, true);
-      dungeonRow.appendChild(cardElement);
+      gameState.currentRoom.forEach((card, index) => {
+        const cardElement = createCardElement(card, true, true);
+        cardElement.dataset.index = index;
+        dungeonRow.appendChild(cardElement);
+      });
       
       updateStats();
     }
 
     // Select a card to resolve
     function selectCard(index) {
-      if (gameState.phase !== 'selection') return;
-      
       // Get the selected card
       const card = gameState.currentRoom[index];
       
-      // Remove all cards from currentRoom
-      const otherCards = gameState.currentRoom.filter((_, i) => i !== index);
-      
-      // Add other cards to discard
-      otherCards.forEach(c => gameState.discard.push(c));
-      
-      // Clear dungeon display
-      dungeonRow.innerHTML = '';
+      // Remove the card from currentRoom
+      gameState.currentRoom.splice(index, 1);
       
       // Process the selected card
       processCard(card);
       
-      // Empty currentRoom
-      gameState.currentRoom = [];
-      
-      // Update phase
-      gameState.phase = 'dungeon';
-      escapeBtn.disabled = false;
-      drawCardBtn.disabled = false;
-      
-      updatePhaseIndicator();
-      updateStats();
-    }
-
-    // Draw a card from the deck (during dungeon exploration)
-    function drawCard() {
-      if (gameState.phase !== 'dungeon') return;
-      
-      if (gameState.deck.length === 0) {
-        // Reshuffle discard pile if deck is empty
-        gameState.deck = shuffleDeck(gameState.discard);
-        gameState.discard = [];
-        logMessage('Deck empty! Reshuffled discard pile.');
+      // If there are still cards in the room, player can select again
+      if (gameState.currentRoom.length > 0) {
+        renderRoom();
+        logMessage('Select another card to resolve or escape.');
+      } else {
+        // All cards resolved, draw 4 new cards
+        drawInitialCards();
+        gameState.canEscape = true;
+        updatePhaseIndicator();
+        updateButtons();
+        logMessage('Room cleared! New room revealed.');
       }
       
-      const card = gameState.deck.pop();
-      
-      // Add card to dungeon row
-      const cardElement = createCardElement(card);
-      dungeonRow.appendChild(cardElement);
-      
-      // Process card effect based on suit
-      processCard(card);
       updateStats();
     }
 
@@ -499,6 +477,8 @@
     function processCard(card) {
       // Add card to discard after processing
       gameState.discard.push(card);
+      
+      logMessage(`You resolved a ${card.value}${card.symbol}.`);
       
       switch(card.suit) {
         case 'spades':
@@ -510,16 +490,21 @@
           // Healing potion
           const healAmount = Math.min(card.faceValue, gameState.maxHealth - gameState.health);
           gameState.health += healAmount;
-          logMessage(`You found a healing potion (${card.value}${card.symbol}) and recovered ${healAmount} health!`);
+          logMessage(`You found a healing potion and recovered ${healAmount} health!`);
           break;
         case 'diamonds':
-          // Gold/treasure
-          gameState.gold += card.faceValue;
-          logMessage(`You found ${card.faceValue} gold (${card.value}${card.symbol})!`);
+          // Weapon (changing from gold to weapon)
+          gameState.weapon = card;
+          logMessage(`You found a weapon (${card.value}${card.symbol})!`);
           break;
         case 'clubs':
-          // Equipment
-          handleEquipment(card);
+          // Armor
+          if (!gameState.armor || card.faceValue > gameState.armor.faceValue) {
+            gameState.armor = card;
+            logMessage(`You found better armor (${card.value}${card.symbol})!`);
+          } else {
+            logMessage(`You found armor (${card.value}${card.symbol}), but your current one is better.`);
+          }
           break;
       }
     }
@@ -553,74 +538,49 @@
       }
     }
 
-    // Handle equipment cards
-    function handleEquipment(card) {
-      if (['A', '2', '3', '4', '5'].includes(card.value)) {
-        // Weapon
-        if (!gameState.weapon || card.faceValue > gameState.weapon.faceValue) {
-          gameState.weapon = card;
-          logMessage(`You found a better weapon (${card.value}${card.symbol})!`);
-        } else {
-          logMessage(`You found a weapon (${card.value}${card.symbol}), but your current one is better.`);
-        }
-      } else {
-        // Armor
-        if (!gameState.armor || card.faceValue > gameState.armor.faceValue) {
-          gameState.armor = card;
-          logMessage(`You found better armor (${card.value}${card.symbol})!`);
-        } else {
-          logMessage(`You found armor (${card.value}${card.symbol}), but your current one is better.`);
-        }
-      }
-    }
-
     // Game over
     function gameOver() {
       gameState.gameStarted = false;
       gameState.phase = 'gameover';
-      drawCardBtn.disabled = true;
-      escapeBtn.disabled = true;
-      beginAdventureBtn.disabled = true;
       
       logMessage(`Game over! You died in the dungeon.`);
       logMessage(`Final score: ${gameState.gold} gold.`);
       
       updatePhaseIndicator();
+      updateButtons();
     }
 
     // Escape from dungeon
     function escape() {
-      if (gameState.currentRoom.length > 0) {
-        // Move all cards to bottom of deck (not discard)
-        gameState.deck = [...gameState.deck, ...gameState.currentRoom];
-        
-        // Clear dungeon display
-        dungeonRow.innerHTML = '';
-        
-        gameState.currentRoom = [];
-        logMessage(`You escaped and shuffled the revealed cards back into the deck.`);
-        
-        // If in selection phase, go to dungeon phase
-        if (gameState.phase === 'selection') {
-          gameState.phase = 'dungeon';
-          drawCardBtn.disabled = false;
-          updatePhaseIndicator();
-        }
-      } else {
-        logMessage(`There's nothing to escape from.`);
-      }
+      if (!gameState.canEscape) return;
       
+      // Move all cards to bottom of deck
+      gameState.deck = [...gameState.deck, ...gameState.currentRoom];
+      
+      // Clear dungeon display
+      dungeonRow.innerHTML = '';
+      gameState.currentRoom = [];
+      
+      // Draw 4 new cards
+      drawInitialCards();
+      
+      // Disable escape for next room
+      gameState.canEscape = false;
+      
+      logMessage(`You escaped! New room revealed. You cannot escape this room.`);
+      updatePhaseIndicator();
+      updateButtons();
       updateStats();
     }
 
     // Event listeners
-    startGameBtn.addEventListener('click', startGame);
     beginAdventureBtn.addEventListener('click', beginAdventure);
-    drawCardBtn.addEventListener('click', drawCard);
     escapeBtn.addEventListener('click', escape);
     
     // Initialize UI
     updatePhaseIndicator();
+    updateButtons();
+    updateStats();
   </script>
 </body>
 </html>
